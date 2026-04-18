@@ -4,15 +4,16 @@ mod error;
 mod host;
 mod ssh;
 
-use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Commands, GroupCommands};
 use colored::*;
 use config::Config;
+use error::HopError;
 use host::Host;
 use std::fs;
+use std::num::ParseIntError;
 
-fn main() -> Result<()> {
+fn main() -> Result<(), HopError> {
     let cli = Cli::parse();
 
     // Quick connect: hop myserver
@@ -34,7 +35,14 @@ fn main() -> Result<()> {
     };
 
     match cmd {
-        Commands::Add { name, host, user, port, identity, group } => {
+        Commands::Add {
+            name,
+            host,
+            user,
+            port,
+            identity,
+            group,
+        } => {
             let mut config = Config::load()?;
             let mut h = Host::new(&name, &host, &user, port);
             h.identity = identity;
@@ -60,14 +68,28 @@ fn main() -> Result<()> {
             println!("{} {}", "✓ Removed".red(), name.bold());
         }
 
-        Commands::Edit { name, host, user, port, identity } => {
+        Commands::Edit {
+            name,
+            host,
+            user,
+            port,
+            identity,
+        } => {
             let mut config = Config::load()?;
             {
                 let h = config.get_host_mut(&name)?;
-                if let Some(v) = host     { h.hostname = v; }
-                if let Some(v) = user     { h.user = v; }
-                if let Some(v) = port     { h.port = v; }
-                if let Some(v) = identity { h.identity = Some(v); }
+                if let Some(v) = host {
+                    h.hostname = v;
+                }
+                if let Some(v) = user {
+                    h.user = v;
+                }
+                if let Some(v) = port {
+                    h.port = v;
+                }
+                if let Some(v) = identity {
+                    h.identity = Some(v);
+                }
             }
             config.save()?;
             println!("{} {}", "✓ Updated".green(), name.bold());
@@ -129,18 +151,32 @@ fn main() -> Result<()> {
                 h.tags.push(tag.clone());
             }
             config.save()?;
-            println!("{} tag '{}' to {}", "✓ Added".green(), tag.yellow(), name.bold());
+            println!(
+                "{} tag '{}' to {}",
+                "✓ Added".green(),
+                tag.yellow(),
+                name.bold()
+            );
         }
 
         Commands::Search { query } => {
             let config = Config::load()?;
             let q = query.to_lowercase();
-            let results: Vec<_> = config.hosts.values().filter(|h| {
-                h.name.to_lowercase().contains(&q)
-                    || h.hostname.to_lowercase().contains(&q)
-                    || h.tags.iter().any(|t| t.to_lowercase().contains(&q))
-                    || h.group.as_deref().unwrap_or("").to_lowercase().contains(&q)
-            }).collect();
+            let results: Vec<_> = config
+                .hosts
+                .values()
+                .filter(|h| {
+                    h.name.to_lowercase().contains(&q)
+                        || h.hostname.to_lowercase().contains(&q)
+                        || h.tags.iter().any(|t| t.to_lowercase().contains(&q))
+                        || h
+                            .group
+                            .as_deref()
+                            .unwrap_or("")
+                            .to_lowercase()
+                            .contains(&q)
+                })
+                .collect();
 
             if results.is_empty() {
                 println!("{}", "No hosts found.".dimmed());
@@ -157,11 +193,16 @@ fn main() -> Result<()> {
                 let h = config.get_host_mut(&host)?;
                 h.group = Some(group.clone());
                 config.save()?;
-                println!("{} {} → group '{}'", "✓ Assigned".green(), host.bold(), group.yellow());
+                println!(
+                    "{} {} → group '{}'",
+                    "✓ Assigned".green(),
+                    host.bold(),
+                    group.yellow()
+                );
             }
             GroupCommands::List => {
                 let config = Config::load()?;
-                let mut groups: std::collections::HashSet<String> = std::collections::HashSet::new();
+                let mut groups = std::collections::HashSet::new();
                 for h in config.hosts.values() {
                     if let Some(ref g) = h.group {
                         groups.insert(g.clone());
@@ -206,10 +247,16 @@ fn main() -> Result<()> {
             let host = config.get_host(&name)?;
             let parts: Vec<&str> = ports.split(':').collect();
             if parts.len() != 2 {
-                anyhow::bail!("Port format must be local:remote (e.g. 8080:3000)");
+                return Err(HopError::InvalidPort(
+                    "Port format must be local:remote (e.g. 8080:3000)".to_string(),
+                ));
             }
-            let local: u16 = parts[0].parse()?;
-            let remote: u16 = parts[1].parse()?;
+            let local: u16 = parts[0]
+                .parse()
+                .map_err(|e: ParseIntError| HopError::InvalidPort(e.to_string()))?;
+            let remote: u16 = parts[1]
+                .parse()
+                .map_err(|e: ParseIntError| HopError::InvalidPort(e.to_string()))?;
             ssh::tunnel(host, local, remote)?;
         }
 
@@ -229,7 +276,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn cmd_list(group: Option<String>) -> Result<()> {
+fn cmd_list(group: Option<String>) -> Result<(), HopError> {
     let config = Config::load()?;
     if config.hosts.is_empty() {
         println!("{}", "No hosts yet. Use `hop add` to add one.".dimmed());
@@ -251,7 +298,9 @@ fn cmd_list(group: Option<String>) -> Result<()> {
 }
 
 fn print_host_row(h: &Host) {
-    let group_str = h.group.as_deref()
+    let group_str = h
+        .group
+        .as_deref()
         .map(|g| format!(" [{}]", g).yellow().to_string())
         .unwrap_or_default();
     let tags_str = if h.tags.is_empty() {
@@ -260,7 +309,7 @@ fn print_host_row(h: &Host) {
         format!(" #{}", h.tags.join(" #")).dimmed().to_string()
     };
     println!(
-        "  {:<20} {}@{}:{}{}{}", 
+        "  {:<20} {}@{}:{}{}{}",
         h.name.bold().green(),
         h.user,
         h.hostname.cyan(),

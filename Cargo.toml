@@ -1,10 +1,10 @@
 [package]
-name = "hop"
+name = "hop-ssh"
 version = "0.1.0"
 edition = "2021"
 description = "⚡ Blazing fast SSH host manager"
 license = "MIT"
-repository = "https://github.com/yourusername/hop"
+repository = "https://github.com/UltraElite90/hop-ssh"
 
 [[bin]]
 name = "hop"

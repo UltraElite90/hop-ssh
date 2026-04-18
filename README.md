@@ -1,4 +1,4 @@
-# ⚡ hop
+cargo publish# ⚡ hop
 
 > Blazing fast SSH host manager for developers
 
